@@ -7,24 +7,24 @@ const WebSocket = require("ws");
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Use express.json() to parse JSON bodies and enable CORS
+// Use express.json() and enable CORS
 app.use(express.json());
 app.use(cors());
 
+// lastMotionState is initially "No Motion Detected"
 let lastMotionState = "No Motion Detected";
 
-// POST route to receive motion data from the ESP8266
+// (Optional) If you're no longer using HTTP POST from Arduino, you can remove this
 app.post("/motion", (req, res) => {
-  console.log("Motion data received:", req.body);
+  console.log("Motion data received (POST):", req.body);
   if (req.body.motion) {
     lastMotionState = req.body.motion;
-    // Broadcast to all connected WebSocket clients
     broadcast(lastMotionState);
   }
   res.sendStatus(200);
 });
 
-// A simple GET route to test the server
+// Simple test route
 app.get("/", (req, res) => {
   res.send("Hello from Motion Server with WebSockets!");
 });
@@ -32,16 +32,30 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// When a new client connects, send the current state immediately.
+// When a client (Arduino or UI) connects via WebSocket
 wss.on("connection", (ws) => {
   console.log("A client connected via WebSocket");
+
+  // Immediately send the current state
   ws.send(lastMotionState);
+
+  // **Listen for messages** from this client
+  ws.on("message", (msg) => {
+    console.log("Received message from client:", msg);
+
+    // Update our global motion state
+    lastMotionState = msg.toString();
+
+    // Broadcast to all connected clients
+    broadcast(lastMotionState);
+  });
+
   ws.on("close", () => {
     console.log("A client disconnected");
   });
 });
 
-// Broadcast function to send data to all connected clients.
+// Helper function to broadcast data to all WebSocket clients
 function broadcast(data) {
   wss.clients.forEach((client) => {
     if (client.readyState === WebSocket.OPEN) {
@@ -50,6 +64,7 @@ function broadcast(data) {
   });
 }
 
+// Start the server
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
