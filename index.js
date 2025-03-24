@@ -1,63 +1,55 @@
-// index.js
+// server-ws.js
 const express = require("express");
 const cors = require("cors");
 const http = require("http");
-const { Server } = require("socket.io");
+const WebSocket = require("ws");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Create an HTTP server and bind Socket.IO
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
-});
-
-// Use express.json() to parse JSON bodies
+// Use express.json() to parse JSON bodies and enable CORS
 app.use(express.json());
-
-// Enable CORS so your mobile app can connect
 app.use(cors());
 
-// Global variable to store the last motion state
 let lastMotionState = "No Motion Detected";
 
-// Define a route to receive motion data (POST)
+// POST route to receive motion data from the ESP8266
 app.post("/motion", (req, res) => {
   console.log("Motion data received:", req.body);
   if (req.body.motion) {
     lastMotionState = req.body.motion;
-    // Broadcast the new state to all connected clients
-    io.emit("motion", lastMotionState);
+    // Broadcast to all connected WebSocket clients
+    broadcast(lastMotionState);
   }
   res.sendStatus(200);
 });
 
 // A simple GET route to test the server
 app.get("/", (req, res) => {
-  res.send("Hello from Motion Server!");
+  res.send("Hello from Motion Server with WebSockets!");
 });
 
-// (Optional) A GET endpoint to check the last motion status in JSON
-app.get("/status", (req, res) => {
-  res.json({ motion: lastMotionState });
-});
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// Handle new WebSocket connections
-io.on("connection", (socket) => {
-  console.log("A client connected via Socket.IO");
-
-  // Optionally send the current state immediately upon connection
-  socket.emit("motion", lastMotionState);
-
-  socket.on("disconnect", () => {
+// When a new client connects, send the current state immediately.
+wss.on("connection", (ws) => {
+  console.log("A client connected via WebSocket");
+  ws.send(lastMotionState);
+  ws.on("close", () => {
     console.log("A client disconnected");
   });
 });
 
-// Start listening
+// Broadcast function to send data to all connected clients.
+function broadcast(data) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+}
+
 server.listen(port, () => {
   console.log(`Server listening on port ${port}`);
 });
